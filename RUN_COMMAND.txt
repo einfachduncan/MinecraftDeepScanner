@@ -1,0 +1,9 @@
+Im Ordner MinecraftDeepScanner ausfuehren:
+
+powershell -ExecutionPolicy Bypass -File .\MinecraftDeepScanner.ps1
+
+Direkt mit normalem Minecraft-Ordner:
+
+powershell -ExecutionPolicy Bypass -File .\MinecraftDeepScanner.ps1 -Path "$env:APPDATA\.minecraft"
+
+Hinweis: Der Bypass gilt nur fuer diesen lokalen Startbefehl. Das Skript laedt nichts aus dem Internet und fuehrt keinen Remote-Code aus.
