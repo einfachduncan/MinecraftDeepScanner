@@ -474,6 +474,16 @@ function Test-IsFabricLibraryFile {
     )
 }
 
+function Test-IsResourcePackFile {
+    param(
+        [System.IO.FileInfo]$File,
+        [string]$RootPath
+    )
+
+    $relativePath = Get-RelativePathSafe -BasePath $RootPath -FullPath $File.FullName
+    return ((Get-ProfileArea -RelativePath $relativePath) -eq "RESOURCEPACKS")
+}
+
 function Test-IsBenignFabricLogLine {
     param(
         [string]$LowerLine,
@@ -926,10 +936,80 @@ function Write-ConsoleLogList {
     }
 }
 
+function Get-ModDisplayRows {
+    param(
+        [object[]]$ModFiles,
+        [object[]]$Findings,
+        [object[]]$VerifiedMods
+    )
+
+    $rows = New-Object System.Collections.ArrayList
+    $highPaths = @($Findings | Where-Object { $_.Category -eq "HIGH" } | Select-Object -ExpandProperty FullPath -Unique)
+    $verifiedPaths = @($VerifiedMods | Select-Object -ExpandProperty ModPath -Unique)
+    $renamedPaths = @($VerifiedMods | Where-Object { $_.IsRenamed -eq $true } | Select-Object -ExpandProperty ModPath -Unique)
+
+    foreach ($mod in @($ModFiles | Sort-Object Name)) {
+        $verification = @($VerifiedMods | Where-Object { $_.ModPath -eq $mod.FullName } | Select-Object -First 1)
+        $status = "CLEAN"
+        $reason = "Keine Cheat-Hinweise im Dateinamen."
+
+        if ($highPaths -contains $mod.FullName) {
+            $status = "FLAGGED"
+            $reason = "Dateiname enthaelt Cheat-/Client-Hinweise."
+        }
+        elseif ($renamedPaths -contains $mod.FullName) {
+            $status = "RENAMED"
+            $reason = "Hash wurde verifiziert, Dateiname passt aber nicht zum Projekt."
+        }
+        elseif ($verifiedPaths -contains $mod.FullName) {
+            $status = "VERIFIED"
+            $reason = "Hash wurde online als bekannte Mod verifiziert."
+        }
+
+        $project = if ($verification.Count -gt 0) { $verification[0].Name } else { "" }
+        $source = if ($verification.Count -gt 0) { $verification[0].Source } else { "" }
+
+        [void]$rows.Add([PSCustomObject]@{
+            Status = $status
+            FileName = $mod.Name
+            FullPath = $mod.FullName
+            SizeText = Format-FileSize -Bytes $mod.Length
+            Reason = $reason
+            Project = $project
+            Source = $source
+        })
+    }
+
+    return $rows.ToArray()
+}
+
+function Write-ConsoleModList {
+    param([object[]]$Rows)
+
+    if ($Rows.Count -eq 0) {
+        Write-Host "  None" -ForegroundColor DarkGray
+        return
+    }
+
+    foreach ($row in $Rows) {
+        $color = [ConsoleColor]::Green
+        if ($row.Status -eq "FLAGGED") { $color = [ConsoleColor]::Red }
+        elseif ($row.Status -eq "RENAMED") { $color = [ConsoleColor]::Yellow }
+        elseif ($row.Status -eq "VERIFIED") { $color = [ConsoleColor]::Green }
+
+        Write-Host ("  {0,-9} {1}" -f $row.Status, $row.FileName) -ForegroundColor $color
+        Write-Host ("      {0}" -f $row.Reason) -ForegroundColor DarkGray
+        if (-not [string]::IsNullOrWhiteSpace($row.Project)) {
+            Write-Host ("      {0}: {1}" -f $row.Source, $row.Project) -ForegroundColor DarkGray
+        }
+    }
+}
+
 function Show-ConsoleReport {
     param(
         [string]$RootPath,
         [object[]]$Findings,
+        [object[]]$ModFiles,
         [object[]]$VerifiedMods,
         [object]$LogFindings,
         [object[]]$ScanErrors,
@@ -958,6 +1038,8 @@ function Show-ConsoleReport {
     $infoLogHits = @($LogFindings.PlainLogHits | Where-Object { $_.Kind -eq "INFO" })
     $verifiedCleanMods = @($VerifiedMods | Where-Object { $_.IsRenamed -ne $true } | Sort-Object ModFile)
     $renamedMods = @($VerifiedMods | Where-Object { $_.IsRenamed -eq $true } | Sort-Object ModFile)
+    $modRows = @(Get-ModDisplayRows -ModFiles $ModFiles -Findings $Findings -VerifiedMods $VerifiedMods)
+    $flaggedModRows = @($modRows | Where-Object { $_.Status -eq "FLAGGED" })
 
     Write-Host ""
     Write-Host ("  *  PROFILE SUMMARY  ({0} files scanned)" -f $TotalFiles) -ForegroundColor Cyan
@@ -968,6 +1050,8 @@ function Show-ConsoleReport {
     Write-Host ("  MEDIUM files:       {0}" -f $mediumFindings.Count) -ForegroundColor Yellow
     Write-Host ("  LOW files:          {0}" -f $lowFindings.Count) -ForegroundColor White
     Write-Host ("  INFO JARs/mods:     {0}" -f $infoFindings.Count) -ForegroundColor Green
+    Write-Host ("  Mods listed:        {0}" -f $modRows.Count) -ForegroundColor White
+    Write-Host ("  Flagged mods:       {0}" -f $flaggedModRows.Count) -ForegroundColor Red
     Write-Host ("  Verified mods:      {0}" -f $verifiedCleanMods.Count) -ForegroundColor Green
     Write-Host ("  Renamed mods:       {0}" -f $renamedMods.Count) -ForegroundColor Yellow
     Write-Host ("  latest.log flags:   {0}" -f $latestSuspiciousHits.Count) -ForegroundColor Red
@@ -994,6 +1078,11 @@ function Show-ConsoleReport {
     Write-Host ("  *  CLEAN / INFO JARS  ({0})" -f $infoFindings.Count) -ForegroundColor Green
     Write-Line
     Write-ConsoleFindingList -Items $infoFindings -Color Green
+
+    Write-Host ""
+    Write-Host ("  *  ALL MODS  ({0})" -f $modRows.Count) -ForegroundColor Cyan
+    Write-Line
+    Write-ConsoleModList -Rows $modRows
 
     Write-Host ""
     Write-Host ("  *  VERIFIED MODS  ({0})" -f $verifiedCleanMods.Count) -ForegroundColor Green
@@ -1057,6 +1146,11 @@ function Show-ConsoleReport {
     Write-ConsoleFindingList -Items $highFindings -Color Red
 
     Write-Host ""
+    Write-Host ("  *  FLAGGED MODS  ({0})" -f $flaggedModRows.Count) -ForegroundColor Red
+    Write-Line
+    Write-ConsoleModList -Rows $flaggedModRows
+
+    Write-Host ""
     Write-Host "SUMMARY" -ForegroundColor Cyan
     Write-Line
     Write-Host ("  Report saved:       {0}" -f $ReportPath) -ForegroundColor White
@@ -1084,6 +1178,7 @@ function New-Report {
     param(
         [string]$RootPath,
         [object[]]$Findings,
+        [object[]]$ModFiles,
         [object[]]$VerifiedMods,
         [object]$LogFindings,
         [object[]]$ScanErrors,
@@ -1130,6 +1225,8 @@ function New-Report {
     $infoLogHits = @($LogFindings.PlainLogHits | Where-Object { $_.Kind -eq "INFO" })
     $verifiedCleanMods = @($VerifiedMods | Where-Object { $_.IsRenamed -ne $true } | Sort-Object ModFile)
     $renamedMods = @($VerifiedMods | Where-Object { $_.IsRenamed -eq $true } | Sort-Object ModFile)
+    $modRows = @(Get-ModDisplayRows -ModFiles $ModFiles -Findings $Findings -VerifiedMods $VerifiedMods)
+    $flaggedModRows = @($modRows | Where-Object { $_.Status -eq "FLAGGED" })
     $configFindings = @($Findings | Where-Object { $_.Area -eq "CONFIG" -and $_.Category -eq "INFO" } | Sort-Object RelativePath)
     $logAreaFindings = @($Findings | Where-Object { $_.Area -eq "LOGS" -and $_.Category -eq "INFO" } | Sort-Object RelativePath)
     $executableFindings = @($Findings | Where-Object { $ExecutableExtensions -contains $_.Extension.ToLowerInvariant() } | Sort-Object RelativePath)
@@ -1141,6 +1238,8 @@ function New-Report {
     [void]$lines.Add("MEDIUM Dateien:     $($mediumFindings.Count)")
     [void]$lines.Add("LOW Dateien:        $($lowFindings.Count)")
     [void]$lines.Add("INFO JARs/Mods:     $($infoFindings.Count)")
+    [void]$lines.Add("Mods gelistet:      $($modRows.Count)")
+    [void]$lines.Add("Geflaggte Mods:     $($flaggedModRows.Count)")
     [void]$lines.Add("Verified Mods:      $($verifiedCleanMods.Count)")
     [void]$lines.Add("Renamed Mods:       $($renamedMods.Count)")
     [void]$lines.Add("latest.log auffaellig: $($latestSuspiciousHits.Count)")
@@ -1167,6 +1266,21 @@ function New-Report {
 
     Add-Section -Lines $lines -Title "LOG-INFO - GELADENE MODS"
     Add-LogHitLines -Lines $lines -Hits $infoLogHits
+
+    Add-Section -Lines $lines -Title "ALLE MODS"
+    if ($modRows.Count -eq 0) {
+        [void]$lines.Add("Keine Mods gefunden.")
+    }
+    else {
+        foreach ($row in $modRows) {
+            [void]$lines.Add("$($row.Status): $($row.FileName)")
+            [void]$lines.Add("  Grund: $($row.Reason)")
+            if (-not [string]::IsNullOrWhiteSpace($row.Project)) {
+                [void]$lines.Add("  $($row.Source): $($row.Project)")
+            }
+            [void]$lines.Add("  Pfad: $($row.FullPath)")
+        }
+    }
 
     Add-Section -Lines $lines -Title "VERIFIED MODS"
     if ($verifiedCleanMods.Count -eq 0) {
@@ -1211,6 +1325,18 @@ function New-Report {
     Add-Section -Lines $lines -Title "HIGH - Dateien"
     Add-FindingLines -Lines $lines -Findings $highCategoryFindings
 
+    Add-Section -Lines $lines -Title "GEFLAGGTE MODS"
+    if ($flaggedModRows.Count -eq 0) {
+        [void]$lines.Add("Keine geflaggten Mods.")
+    }
+    else {
+        foreach ($row in $flaggedModRows) {
+            [void]$lines.Add("FLAGGED: $($row.FileName)")
+            [void]$lines.Add("  Grund: $($row.Reason)")
+            [void]$lines.Add("  Pfad: $($row.FullPath)")
+        }
+    }
+
     Add-Section -Lines $lines -Title "KOMPRIMIERTE LOGS (.log.gz)"
     if ($LogFindings.GzLogs.Count -eq 0) {
         [void]$lines.Add("Keine .log.gz-Dateien gefunden.")
@@ -1253,7 +1379,8 @@ try {
 
     $watchedFiles = @($allFiles | Where-Object {
         ($WatchedExtensions -contains $_.Extension.ToLowerInvariant()) -and
-        -not (Test-IsFabricLibraryFile -File $_ -RootPath $rootPath)
+        -not (Test-IsFabricLibraryFile -File $_ -RootPath $rootPath) -and
+        -not (Test-IsResourcePackFile -File $_ -RootPath $rootPath)
     })
     $modJarFiles = @($allFiles | Where-Object {
         $_.Extension.ToLowerInvariant() -eq ".jar" -and
@@ -1319,13 +1446,13 @@ try {
     }
 
     $emailDraftPath = $null
-    $reportLines = New-Report -RootPath $rootPath -Findings @($findings) -VerifiedMods @($verifiedMods) -LogFindings $logFindings -ScanErrors $scanErrors -TotalFiles $allFiles.Count -LatestLogExportPath $latestLogExportPath -EmailDraftPath $emailDraftPath -StartedAt $startedAt -FinishedAt $finishedAt
+    $reportLines = New-Report -RootPath $rootPath -Findings @($findings) -ModFiles $modJarFiles -VerifiedMods @($verifiedMods) -LogFindings $logFindings -ScanErrors $scanErrors -TotalFiles $allFiles.Count -LatestLogExportPath $latestLogExportPath -EmailDraftPath $emailDraftPath -StartedAt $startedAt -FinishedAt $finishedAt
     $reportLines | Set-Content -LiteralPath $reportPath -Encoding UTF8
 
     Write-Host "Pass 6 - Optional local email draft..." -ForegroundColor Cyan
     if (Get-EmailDraftChoice -AlreadyRequested ([bool]$PrepareEmailDraft)) {
         $emailDraftPath = New-EmailDraftLocal -To $EmailTo -ReportPath $reportPath -LatestLogPath $latestLogExportPath -DestinationDirectory $PSScriptRoot -Timestamp $finishedAt
-        $reportLines = New-Report -RootPath $rootPath -Findings @($findings) -VerifiedMods @($verifiedMods) -LogFindings $logFindings -ScanErrors $scanErrors -TotalFiles $allFiles.Count -LatestLogExportPath $latestLogExportPath -EmailDraftPath $emailDraftPath -StartedAt $startedAt -FinishedAt $finishedAt
+        $reportLines = New-Report -RootPath $rootPath -Findings @($findings) -ModFiles $modJarFiles -VerifiedMods @($verifiedMods) -LogFindings $logFindings -ScanErrors $scanErrors -TotalFiles $allFiles.Count -LatestLogExportPath $latestLogExportPath -EmailDraftPath $emailDraftPath -StartedAt $startedAt -FinishedAt $finishedAt
         $reportLines | Set-Content -LiteralPath $reportPath -Encoding UTF8
         Write-Host ("   Prepared local email draft for {0}: {1}" -f $EmailTo, $emailDraftPath) -ForegroundColor Green
         Write-Host "   Nothing was sent automatically." -ForegroundColor DarkGray
@@ -1334,7 +1461,7 @@ try {
         Write-Host "   Email draft skipped. Nothing was sent." -ForegroundColor DarkGray
     }
 
-    Show-ConsoleReport -RootPath $rootPath -Findings @($findings) -VerifiedMods @($verifiedMods) -LogFindings $logFindings -ScanErrors $scanErrors -TotalFiles $allFiles.Count -ReportPath $reportPath -LatestLogExportPath $latestLogExportPath -EmailDraftPath $emailDraftPath -StartedAt $startedAt -FinishedAt $finishedAt
+    Show-ConsoleReport -RootPath $rootPath -Findings @($findings) -ModFiles $modJarFiles -VerifiedMods @($verifiedMods) -LogFindings $logFindings -ScanErrors $scanErrors -TotalFiles $allFiles.Count -ReportPath $reportPath -LatestLogExportPath $latestLogExportPath -EmailDraftPath $emailDraftPath -StartedAt $startedAt -FinishedAt $finishedAt
 }
 catch {
     Write-Host ""

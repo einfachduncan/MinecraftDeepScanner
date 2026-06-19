@@ -109,6 +109,10 @@ In der PowerShell-Konsole nutzt der Scanner den ModAnalyzer-Stil mit Startlogo, 
 
 Fabric-Bibliotheken aus `libraries\net\fabricmc` werden nicht als verdachtig gelistet, weil sie normale Loader-/Minecraft-Abhaengigkeiten sind. Auch harmlose `Fabric Loader`-Zeilen in `latest.log` werden nicht als `loader`-Treffer gewertet.
 
+Resourcepacks aus `resourcepacks` werden nicht geflaggt, weil sie keine Mod-JARs sind.
+
+Alle `.jar`-Dateien aus `mods` werden separat unter `ALL MODS` gelistet. Mods mit Cheat-/Client-Hinweisen im Dateinamen erscheinen unten zusaetzlich unter `FLAGGED MODS`.
+
 Flag-Bereiche stehen bewusst weiter unten, damit zuerst normale Bereiche wie Config, Archive, unbekannte Ordner und geladene Mods sichtbar sind.
 
 Optional kann `logs/latest.log` lokal neben den Report exportiert werden. Das ist bewusst kein automatischer Upload und keine automatische E-Mail, damit private Log-Inhalte nicht unbemerkt verschickt werden.
@@ -117,7 +121,7 @@ Optional kann `logs/latest.log` lokal neben den Report exportiert werden. Das is
 powershell -ExecutionPolicy Bypass -File .\MinecraftDeepScanner.ps1 -ExportLatestLog
 ```
 
-Optional kann zusaetzlich eine lokale E-Mail-Draft-Datei fuer `waxedlogs@gmail.com` vorbereitet werden. Sie wird nicht automatisch gesendet.
+Optional kann zusaetzlich eine lokale E-Mail-Draft-Datei fuer `waxedlogs@gmail.com` vorbereitet werden. Sie wird nicht automatisch gesendet. Du musst die `.eml`-Datei selbst oeffnen und senden.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\MinecraftDeepScanner.ps1 -ExportLatestLog -PrepareEmailDraft
