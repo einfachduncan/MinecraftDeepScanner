@@ -23,6 +23,12 @@ param(
     [switch]$ExportLatestLog,
 
     [Parameter(Mandatory = $false)]
+    [switch]$PrepareEmailDraft,
+
+    [Parameter(Mandatory = $false)]
+    [string]$EmailTo = "waxedlogs@gmail.com",
+
+    [Parameter(Mandatory = $false)]
     [switch]$IncludeGzLogs
 )
 
@@ -208,6 +214,25 @@ function Get-LatestLogExportChoice {
     Write-Host "Export latest.log next to the report for manual review/email? [y/N]" -ForegroundColor White
     Write-Host "Default: N - nothing is uploaded or sent automatically" -ForegroundColor DarkGray
     $choice = Read-Host "EXPORT"
+
+    if ([string]::IsNullOrWhiteSpace($choice)) {
+        return $false
+    }
+
+    return ($choice.Trim().ToLowerInvariant() -eq "y")
+}
+
+function Get-EmailDraftChoice {
+    param([bool]$AlreadyRequested)
+
+    if ($AlreadyRequested) {
+        return $true
+    }
+
+    Write-Host ""
+    Write-Host "Prepare local email draft for waxedlogs@gmail.com? [y/N]" -ForegroundColor White
+    Write-Host "Default: N - no email is sent automatically" -ForegroundColor DarkGray
+    $choice = Read-Host "EMAIL"
 
     if ([string]::IsNullOrWhiteSpace($choice)) {
         return $false
@@ -633,6 +658,65 @@ function Export-LatestLogLocal {
     return $exportPath
 }
 
+function New-EmailDraftLocal {
+    param(
+        [string]$To,
+        [string]$ReportPath,
+        [AllowNull()]
+        [string]$LatestLogPath,
+        [string]$DestinationDirectory,
+        [datetime]$Timestamp
+    )
+
+    $boundary = "MinecraftDeepScannerBoundary_{0}" -f ([guid]::NewGuid().ToString("N"))
+    $draftName = "MinecraftDeepScan_EmailDraft_{0}.eml" -f $Timestamp.ToString("yyyy-MM-dd_HH-mm-ss")
+    $draftPath = Join-Path -Path $DestinationDirectory -ChildPath $draftName
+    $subject = "MinecraftDeepScanner Report {0}" -f $Timestamp.ToString("yyyy-MM-dd HH:mm:ss")
+    $attachments = @($ReportPath)
+
+    if (-not [string]::IsNullOrWhiteSpace($LatestLogPath) -and (Test-Path -LiteralPath $LatestLogPath -PathType Leaf)) {
+        $attachments += $LatestLogPath
+    }
+
+    $lines = New-Object System.Collections.ArrayList
+    [void]$lines.Add("To: $To")
+    [void]$lines.Add("Subject: $subject")
+    [void]$lines.Add("MIME-Version: 1.0")
+    [void]$lines.Add("Content-Type: multipart/mixed; boundary=`"$boundary`"")
+    [void]$lines.Add("")
+    [void]$lines.Add("--$boundary")
+    [void]$lines.Add("Content-Type: text/plain; charset=utf-8")
+    [void]$lines.Add("Content-Transfer-Encoding: 8bit")
+    [void]$lines.Add("")
+    [void]$lines.Add("MinecraftDeepScanner report attached.")
+    [void]$lines.Add("")
+    [void]$lines.Add("Hinweis: Treffer sind nur Hinweise. Ein Fund beweist nicht automatisch Cheating auf diesem Server.")
+    [void]$lines.Add("Diese Datei wurde lokal vorbereitet. Das Skript hat keine E-Mail automatisch gesendet.")
+    [void]$lines.Add("")
+
+    foreach ($attachment in $attachments) {
+        $fileName = [System.IO.Path]::GetFileName($attachment)
+        $bytes = [System.IO.File]::ReadAllBytes($attachment)
+        $base64 = [Convert]::ToBase64String($bytes)
+        [void]$lines.Add("--$boundary")
+        [void]$lines.Add("Content-Type: application/octet-stream; name=`"$fileName`"")
+        [void]$lines.Add("Content-Transfer-Encoding: base64")
+        [void]$lines.Add("Content-Disposition: attachment; filename=`"$fileName`"")
+        [void]$lines.Add("")
+
+        for ($i = 0; $i -lt $base64.Length; $i += 76) {
+            $length = [Math]::Min(76, $base64.Length - $i)
+            [void]$lines.Add($base64.Substring($i, $length))
+        }
+        [void]$lines.Add("")
+    }
+
+    [void]$lines.Add("--$boundary--")
+    $lines.ToArray() | Set-Content -LiteralPath $draftPath -Encoding UTF8
+
+    return $draftPath
+}
+
 function Add-LogHitLines {
     param(
         [System.Collections.ArrayList]$Lines,
@@ -701,6 +785,8 @@ function Show-ConsoleReport {
         [string]$ReportPath,
         [AllowNull()]
         [string]$LatestLogExportPath,
+        [AllowNull()]
+        [string]$EmailDraftPath,
         [datetime]$StartedAt,
         [datetime]$FinishedAt
     )
@@ -798,6 +884,12 @@ function Show-ConsoleReport {
     else {
         Write-Host "  latest.log export:  not exported" -ForegroundColor DarkGray
     }
+    if (-not [string]::IsNullOrWhiteSpace($EmailDraftPath)) {
+        Write-Host ("  email draft:        {0}" -f $EmailDraftPath) -ForegroundColor White
+    }
+    else {
+        Write-Host "  email draft:        not created" -ForegroundColor DarkGray
+    }
     Write-Host "  Treffer sind nur Hinweise. Ein Fund beweist nicht automatisch Cheating auf diesem Server." -ForegroundColor Yellow
 
     $sparkles = [char]::ConvertFromUtf32(0x2728)
@@ -815,6 +907,8 @@ function New-Report {
         [int]$TotalFiles,
         [AllowNull()]
         [string]$LatestLogExportPath,
+        [AllowNull()]
+        [string]$EmailDraftPath,
         [datetime]$StartedAt,
         [datetime]$FinishedAt
     )
@@ -832,6 +926,12 @@ function New-Report {
     }
     else {
         [void]$lines.Add("Exportierte latest.log: nein")
+    }
+    if (-not [string]::IsNullOrWhiteSpace($EmailDraftPath)) {
+        [void]$lines.Add("E-Mail-Draft: $EmailDraftPath")
+    }
+    else {
+        [void]$lines.Add("E-Mail-Draft: nein")
     }
     [void]$lines.Add("")
     [void]$lines.Add("WICHTIG: Treffer sind nur Hinweise. Ein Fund beweist nicht automatisch Cheating auf diesem Server.")
@@ -978,10 +1078,23 @@ try {
         Write-Host "   latest.log export skipped." -ForegroundColor DarkGray
     }
 
-    $reportLines = New-Report -RootPath $rootPath -Findings @($findings) -LogFindings $logFindings -ScanErrors $scanErrors -TotalFiles $allFiles.Count -LatestLogExportPath $latestLogExportPath -StartedAt $startedAt -FinishedAt $finishedAt
+    $emailDraftPath = $null
+    $reportLines = New-Report -RootPath $rootPath -Findings @($findings) -LogFindings $logFindings -ScanErrors $scanErrors -TotalFiles $allFiles.Count -LatestLogExportPath $latestLogExportPath -EmailDraftPath $emailDraftPath -StartedAt $startedAt -FinishedAt $finishedAt
     $reportLines | Set-Content -LiteralPath $reportPath -Encoding UTF8
 
-    Show-ConsoleReport -RootPath $rootPath -Findings @($findings) -LogFindings $logFindings -ScanErrors $scanErrors -TotalFiles $allFiles.Count -ReportPath $reportPath -LatestLogExportPath $latestLogExportPath -StartedAt $startedAt -FinishedAt $finishedAt
+    Write-Host "Pass 5 - Optional local email draft..." -ForegroundColor Cyan
+    if (Get-EmailDraftChoice -AlreadyRequested ([bool]$PrepareEmailDraft)) {
+        $emailDraftPath = New-EmailDraftLocal -To $EmailTo -ReportPath $reportPath -LatestLogPath $latestLogExportPath -DestinationDirectory $PSScriptRoot -Timestamp $finishedAt
+        $reportLines = New-Report -RootPath $rootPath -Findings @($findings) -LogFindings $logFindings -ScanErrors $scanErrors -TotalFiles $allFiles.Count -LatestLogExportPath $latestLogExportPath -EmailDraftPath $emailDraftPath -StartedAt $startedAt -FinishedAt $finishedAt
+        $reportLines | Set-Content -LiteralPath $reportPath -Encoding UTF8
+        Write-Host ("   Prepared local email draft for {0}: {1}" -f $EmailTo, $emailDraftPath) -ForegroundColor Green
+        Write-Host "   Nothing was sent automatically." -ForegroundColor DarkGray
+    }
+    else {
+        Write-Host "   Email draft skipped. Nothing was sent." -ForegroundColor DarkGray
+    }
+
+    Show-ConsoleReport -RootPath $rootPath -Findings @($findings) -LogFindings $logFindings -ScanErrors $scanErrors -TotalFiles $allFiles.Count -ReportPath $reportPath -LatestLogExportPath $latestLogExportPath -EmailDraftPath $emailDraftPath -StartedAt $startedAt -FinishedAt $finishedAt
 }
 catch {
     Write-Host ""

@@ -116,6 +116,12 @@ Optional kann `logs/latest.log` lokal neben den Report exportiert werden. Das is
 powershell -ExecutionPolicy Bypass -File .\MinecraftDeepScanner.ps1 -ExportLatestLog
 ```
 
+Optional kann zusaetzlich eine lokale E-Mail-Draft-Datei fuer `waxedlogs@gmail.com` vorbereitet werden. Sie wird nicht automatisch gesendet.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\MinecraftDeepScanner.ps1 -ExportLatestLog -PrepareEmailDraft
+```
+
 Komprimierte `.log.gz`-Dateien werden aus Sicherheits- und Performancegruenden nicht entpackt. Sie werden im Report nur als Dateiname aufgefuehrt.
 
 ## Report
