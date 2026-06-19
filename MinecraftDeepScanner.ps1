@@ -63,6 +63,91 @@ function Write-Title {
     Write-Host "============================================================" -ForegroundColor DarkGray
 }
 
+function Write-Line {
+    Write-Host ("-" * 76) -ForegroundColor DarkGray
+}
+
+function Show-Banner {
+    try {
+        if ([Console]::BufferWidth -lt 120) {
+            [Console]::BufferWidth = 120
+        }
+    }
+    catch {
+        # Manche Hosts erlauben keine Breiten-Aenderung. Der Banner wird trotzdem ausgegeben.
+    }
+
+    $block = [char]::ConvertFromUtf32(0x2588)
+    $dr = [char]::ConvertFromUtf32(0x2557)
+    $v = [char]::ConvertFromUtf32(0x2551)
+    $dl = [char]::ConvertFromUtf32(0x2554)
+    $ul = [char]::ConvertFromUtf32(0x255A)
+    $ur = [char]::ConvertFromUtf32(0x255D)
+    $h = [char]::ConvertFromUtf32(0x2550)
+
+    function Convert-BannerLine {
+        param ([AllowEmptyString()][string]$Line)
+        return $Line.Replace('B', $block).Replace('7', $dr).Replace('|', $v).Replace('/', $dl).Replace('<', $ul).Replace('>', $ur).Replace('=', $h)
+    }
+
+    $bannerLines = @(
+        'BB7    BB7 BBBBB7 BB7  BB7BBBBBBB7BBBBBB7 ',
+        'BB|    BB|BB/==BB7<BB7BB/>BB/====>BB/==BB7',
+        'BB| B7 BB|BBBBBBB| <BBB/> BBBBB7  BB|  BB|',
+        'BB|BBB7BB|BB/==BB| BB/BB7 BB/==>  BB|  BB|',
+        '<BBB/BBB/>BB|  BB|BB/> BB7BBBBBBB7BBBBBB/>',
+        ' <==><==> <=>  <=><=>  <=><======><=====> ',
+        '',
+        'BBB7   BBB7 BBBBBB7 BBBBBB7      BBBBB7 BBB7   BB7 BBBBB7 BB7  BB7   BB7BBBBBBBB7BBBBBBB7BBBBBB7 ',
+        'BBBB7 BBBB|BB/===BB7BB/==BB7    BB/==BB7BBBB7  BB|BB/==BB7BB|  <BB7 BB/><==BB/==>BB/====>BB/==BB7',
+        'BB/BBBB/BB|BB|   BB|BB|  BB|    BBBBBBB|BB/BB7 BB|BBBBBBB|BB|   <BBBB/>    BB|   BBBBB7  BBBBBB/>',
+        'BB|<BB/>BB|BB|   BB|BB|  BB|    BB/==BB|BB|<BB7BB|BB/==BB|BB|    <BB/>     BB|   BB/==>  BB/==BB7',
+        'BB| <=> BB|<BBBBBB/>BBBBBB/>    BB|  BB|BB| <BBBB|BB|  BB|BBBBBBB7BB|      BB|   BBBBBBB7BB|  BB|',
+        '<=>     <=> <=====> <=====>     <=>  <=><=>  <===><=>  <=><======><=>      <=>   <======><=>  <=>'
+    )
+
+    Write-Host ''
+    foreach ($line in $bannerLines) {
+        Write-Host (Convert-BannerLine -Line $line) -ForegroundColor Cyan
+    }
+    Write-Host ''
+    Write-Host '                 MinecraftDeepScanner - Deep Profile Security Scanner' -ForegroundColor White
+    Write-Host '                              Made by einfachduncan' -ForegroundColor DarkGray
+    Write-Host ''
+    Write-Line
+    Write-Host ''
+}
+
+function Write-SpinnerStatus {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Activity,
+
+        [Parameter(Mandatory = $true)]
+        [int]$Index,
+
+        [Parameter(Mandatory = $true)]
+        [int]$Total,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Name
+    )
+
+    $frames = @("|", "/", "-", "\")
+    $frame = $frames[$Index % $frames.Count]
+    $shortName = $Name
+
+    if ($shortName.Length -gt 46) {
+        $shortName = $shortName.Substring(0, 43) + "..."
+    }
+
+    Write-Host ("`r   [{0}] {1}: {2}/{3} - {4}        " -f $frame, $Activity, $Index, $Total, $shortName) -NoNewline -ForegroundColor DarkGray
+}
+
+function Clear-SpinnerStatus {
+    Write-Host ("`r" + (" " * 100) + "`r") -NoNewline
+}
+
 function Select-MinecraftFolder {
     param(
         [string]$InitialPath,
@@ -146,6 +231,27 @@ function Get-RelativePathSafe {
     }
 }
 
+function Get-ProfileArea {
+    param([string]$RelativePath)
+
+    $normalized = $RelativePath.Replace("/", "\").TrimStart("\").ToLowerInvariant()
+    if ($normalized -eq "") { return "ROOT" }
+
+    $firstPart = $normalized.Split("\")[0]
+    switch ($firstPart) {
+        "mods" { return "MODS" }
+        "config" { return "CONFIG" }
+        "versions" { return "VERSIONS" }
+        "libraries" { return "LIBRARIES" }
+        "shaderpacks" { return "SHADERPACKS" }
+        "resourcepacks" { return "RESOURCEPACKS" }
+        "logs" { return "LOGS" }
+        "crash-reports" { return "CRASH-REPORTS" }
+        "downloads" { return "DOWNLOADS" }
+        default { return "UNKNOWN" }
+    }
+}
+
 function Get-CategoryAndReason {
     param(
         [System.IO.FileInfo]$File,
@@ -214,10 +320,13 @@ function New-ScanFinding {
     $wordHits = @(Find-SuspiciousWords -Text $File.Name.ToLowerInvariant())
     $classification = Get-CategoryAndReason -File $File -WordHits $wordHits
 
+    $relativePath = Get-RelativePathSafe -BasePath $RootPath -FullPath $File.FullName
+
     return [pscustomobject]@{
         Category = $classification.Category
         FullPath = $File.FullName
-        RelativePath = Get-RelativePathSafe -BasePath $RootPath -FullPath $File.FullName
+        RelativePath = $relativePath
+        Area = Get-ProfileArea -RelativePath $relativePath
         FileName = $File.Name
         Extension = $File.Extension
         SizeBytes = $File.Length
@@ -425,6 +534,7 @@ function Add-FindingLines {
         [void]$Lines.Add("[$index] [$($finding.Category)] $($finding.RelativePath)")
         [void]$Lines.Add("    Grund:   $($finding.Reason)")
         [void]$Lines.Add("    Datei:   $($finding.FileName) | $($finding.Extension) | $($finding.SizeText)")
+        [void]$Lines.Add("    Bereich: $($finding.Area)")
         [void]$Lines.Add("    Zeit:    Erstellt $($finding.Created) | Geaendert $($finding.Modified)")
         [void]$Lines.Add("    SHA256:  $($finding.SHA256)")
         [void]$Lines.Add("    Pfad:    $($finding.FullPath)")
@@ -451,6 +561,150 @@ function Add-LogHitLines {
         [void]$Lines.Add("    Zeile:   $($hit.Text)")
         $index++
     }
+}
+
+function Write-ConsoleFindingList {
+    param(
+        [object[]]$Items,
+        [string]$EmptyText = "None",
+        [ConsoleColor]$Color = [ConsoleColor]::White
+    )
+
+    if ($Items.Count -eq 0) {
+        Write-Host ("  {0}" -f $EmptyText) -ForegroundColor DarkGray
+        return
+    }
+
+    foreach ($item in $Items) {
+        Write-Host ("  {0,-8} {1}" -f $item.Category, $item.RelativePath) -ForegroundColor $Color
+        Write-Host ("      Reason: {0}" -f $item.Reason) -ForegroundColor DarkGray
+        Write-Host ("      Area:   {0} | Size: {1} | SHA256: {2}" -f $item.Area, $item.SizeText, $item.SHA256) -ForegroundColor DarkGray
+    }
+}
+
+function Write-ConsoleLogList {
+    param(
+        [object[]]$Hits,
+        [ConsoleColor]$Color = [ConsoleColor]::White
+    )
+
+    if ($Hits.Count -eq 0) {
+        Write-Host "  None" -ForegroundColor DarkGray
+        return
+    }
+
+    foreach ($hit in $Hits) {
+        Write-Host ("  {0,-10} {1}:{2}" -f $hit.Kind, $hit.RelativePath, $hit.Line) -ForegroundColor $Color
+        Write-Host ("      Match: {0}" -f $hit.Match) -ForegroundColor DarkGray
+        Write-Host ("      Line:  {0}" -f $hit.Text) -ForegroundColor White
+    }
+}
+
+function Show-ConsoleReport {
+    param(
+        [string]$RootPath,
+        [object[]]$Findings,
+        [object]$LogFindings,
+        [object[]]$ScanErrors,
+        [int]$TotalFiles,
+        [string]$ReportPath,
+        [datetime]$StartedAt,
+        [datetime]$FinishedAt
+    )
+
+    $highFindings = @($Findings | Where-Object { $_.Category -eq "HIGH" } | Sort-Object RelativePath)
+    $mediumFindings = @($Findings | Where-Object { $_.Category -eq "MEDIUM" } | Sort-Object RelativePath)
+    $lowFindings = @($Findings | Where-Object { $_.Category -eq "LOW" } | Sort-Object RelativePath)
+    $infoFindings = @($Findings | Where-Object { $_.Category -eq "INFO" } | Sort-Object RelativePath)
+    $configFindings = @($Findings | Where-Object { $_.Area -eq "CONFIG" } | Sort-Object RelativePath)
+    $logAreaFindings = @($Findings | Where-Object { $_.Area -eq "LOGS" } | Sort-Object RelativePath)
+    $executableFindings = @($Findings | Where-Object { $ExecutableExtensions -contains $_.Extension.ToLowerInvariant() } | Sort-Object RelativePath)
+    $archiveFindings = @($Findings | Where-Object { $ArchiveExtensions -contains $_.Extension.ToLowerInvariant() } | Sort-Object RelativePath)
+    $unknownAreaFindings = @($Findings | Where-Object { $_.Area -eq "UNKNOWN" } | Sort-Object RelativePath)
+    $latestSuspiciousHits = @($LogFindings.PlainLogHits | Where-Object { $_.IsLatestLog -and $_.Kind -eq "SUSPICIOUS" })
+    $latestErrorHits = @($LogFindings.PlainLogHits | Where-Object { $_.IsLatestLog -and $_.Kind -eq "ERROR" })
+    $otherSuspiciousHits = @($LogFindings.PlainLogHits | Where-Object { -not $_.IsLatestLog -and $_.Kind -eq "SUSPICIOUS" })
+    $infoLogHits = @($LogFindings.PlainLogHits | Where-Object { $_.Kind -eq "INFO" })
+
+    Write-Host ""
+    Write-Host ("  *  PROFILE SUMMARY  ({0} files scanned)" -f $TotalFiles) -ForegroundColor Cyan
+    Write-Line
+    Write-Host ("  Path:               {0}" -f $RootPath) -ForegroundColor DarkGray
+    Write-Host ("  Duration:           {0}s" -f ([math]::Round(($FinishedAt - $StartedAt).TotalSeconds, 2))) -ForegroundColor White
+    Write-Host ("  HIGH files:         {0}" -f $highFindings.Count) -ForegroundColor Red
+    Write-Host ("  MEDIUM files:       {0}" -f $mediumFindings.Count) -ForegroundColor Yellow
+    Write-Host ("  LOW files:          {0}" -f $lowFindings.Count) -ForegroundColor White
+    Write-Host ("  INFO JARs/mods:     {0}" -f $infoFindings.Count) -ForegroundColor Green
+    Write-Host ("  latest.log flags:   {0}" -f $latestSuspiciousHits.Count) -ForegroundColor Red
+    Write-Host ("  Access errors:      {0}" -f $ScanErrors.Count) -ForegroundColor Yellow
+    Write-Host ("  Files changed:      0") -ForegroundColor White
+    Write-Line
+
+    Write-Host ""
+    Write-Host ("  *  LATEST.LOG FLAGS  ({0})" -f $latestSuspiciousHits.Count) -ForegroundColor Red
+    Write-Line
+    Write-ConsoleLogList -Hits $latestSuspiciousHits -Color Red
+
+    Write-Host ""
+    Write-Host ("  *  LATEST.LOG ERRORS  ({0})" -f $latestErrorHits.Count) -ForegroundColor Yellow
+    Write-Line
+    Write-ConsoleLogList -Hits $latestErrorHits -Color Yellow
+
+    Write-Host ""
+    Write-Host ("  *  FLAGGED FILES  ({0})" -f $highFindings.Count) -ForegroundColor Red
+    Write-Line
+    Write-ConsoleFindingList -Items $highFindings -Color Red
+
+    Write-Host ""
+    Write-Host ("  *  EXECUTABLES / DLL / SCRIPTS  ({0})" -f $executableFindings.Count) -ForegroundColor Yellow
+    Write-Line
+    Write-ConsoleFindingList -Items $executableFindings -Color Yellow
+
+    Write-Host ""
+    Write-Host ("  *  CONFIG AREA  ({0})" -f $configFindings.Count) -ForegroundColor Cyan
+    Write-Line
+    Write-ConsoleFindingList -Items $configFindings -Color White
+
+    Write-Host ""
+    Write-Host ("  *  LOG FILE AREA  ({0})" -f $logAreaFindings.Count) -ForegroundColor Cyan
+    Write-Line
+    Write-ConsoleFindingList -Items $logAreaFindings -Color White
+
+    Write-Host ""
+    Write-Host ("  *  ARCHIVES  ({0})" -f $archiveFindings.Count) -ForegroundColor White
+    Write-Line
+    Write-ConsoleFindingList -Items $archiveFindings -Color White
+
+    Write-Host ""
+    Write-Host ("  *  UNKNOWN FOLDERS  ({0})" -f $unknownAreaFindings.Count) -ForegroundColor Magenta
+    Write-Line
+    Write-ConsoleFindingList -Items $unknownAreaFindings -Color Magenta
+
+    Write-Host ""
+    Write-Host ("  *  CLEAN / INFO JARS  ({0})" -f $infoFindings.Count) -ForegroundColor Green
+    Write-Line
+    Write-ConsoleFindingList -Items $infoFindings -Color Green
+
+    Write-Host ""
+    Write-Host ("  *  OTHER LOG FLAGS  ({0})" -f $otherSuspiciousHits.Count) -ForegroundColor Yellow
+    Write-Line
+    Write-ConsoleLogList -Hits $otherSuspiciousHits -Color Yellow
+
+    Write-Host ""
+    Write-Host ("  *  LOADED MODS IN LOGS  ({0})" -f $infoLogHits.Count) -ForegroundColor Cyan
+    Write-Line
+    Write-ConsoleLogList -Hits $infoLogHits -Color Cyan
+
+    Write-Host ""
+    Write-Host "SUMMARY" -ForegroundColor Cyan
+    Write-Line
+    Write-Host ("  Report saved:       {0}" -f $ReportPath) -ForegroundColor White
+    Write-Host "  Treffer sind nur Hinweise. Ein Fund beweist nicht automatisch Cheating auf diesem Server." -ForegroundColor Yellow
+
+    $sparkles = [char]::ConvertFromUtf32(0x2728)
+    Write-Host ""
+    Write-Host ("  {0} Analysis complete! Thanks for using MinecraftDeepScanner" -f $sparkles) -ForegroundColor Cyan
+    Write-Line
 }
 
 function New-Report {
@@ -484,6 +738,11 @@ function New-Report {
     $latestErrorHits = @($LogFindings.PlainLogHits | Where-Object { $_.IsLatestLog -and $_.Kind -eq "ERROR" })
     $otherSuspiciousHits = @($LogFindings.PlainLogHits | Where-Object { -not $_.IsLatestLog -and $_.Kind -eq "SUSPICIOUS" })
     $infoLogHits = @($LogFindings.PlainLogHits | Where-Object { $_.Kind -eq "INFO" })
+    $configFindings = @($Findings | Where-Object { $_.Area -eq "CONFIG" } | Sort-Object RelativePath)
+    $logAreaFindings = @($Findings | Where-Object { $_.Area -eq "LOGS" } | Sort-Object RelativePath)
+    $executableFindings = @($Findings | Where-Object { $ExecutableExtensions -contains $_.Extension.ToLowerInvariant() } | Sort-Object RelativePath)
+    $archiveFindings = @($Findings | Where-Object { $ArchiveExtensions -contains $_.Extension.ToLowerInvariant() } | Sort-Object RelativePath)
+    $unknownAreaFindings = @($Findings | Where-Object { $_.Area -eq "UNKNOWN" } | Sort-Object RelativePath)
 
     Add-Section -Lines $lines -Title "KURZFAZIT"
     [void]$lines.Add("HIGH Dateien:       $($highFindings.Count)")
@@ -505,6 +764,21 @@ function New-Report {
         Add-Section -Lines $lines -Title "$category - Dateien"
         Add-FindingLines -Lines $lines -Findings $categoryFindings
     }
+
+    Add-Section -Lines $lines -Title "CONFIG - EXTRA"
+    Add-FindingLines -Lines $lines -Findings $configFindings
+
+    Add-Section -Lines $lines -Title "LOG-DATEIEN - EXTRA"
+    Add-FindingLines -Lines $lines -Findings $logAreaFindings
+
+    Add-Section -Lines $lines -Title "EXECUTABLES / DLL / SCRIPTS - EXTRA"
+    Add-FindingLines -Lines $lines -Findings $executableFindings
+
+    Add-Section -Lines $lines -Title "ARCHIVE - EXTRA"
+    Add-FindingLines -Lines $lines -Findings $archiveFindings
+
+    Add-Section -Lines $lines -Title "UNBEKANNTE ORDNER - EXTRA"
+    Add-FindingLines -Lines $lines -Findings $unknownAreaFindings
 
     Add-Section -Lines $lines -Title "WEITERE LOGS - VERDAECHTIGE TREFFER"
     Add-LogHitLines -Lines $lines -Hits $otherSuspiciousHits
@@ -537,14 +811,16 @@ function New-Report {
 }
 
 try {
-    Write-Title "MinecraftDeepScanner"
-    Write-Host "Read-only Scan: keine Loeschung, keine Veraenderung, kein Internet." -ForegroundColor Green
+    Show-Banner
+    Write-Host "Read-only scan: no delete, no move, no internet upload, no admin requirement." -ForegroundColor Green
 
     $startedAt = Get-Date
     $rootPath = Select-MinecraftFolder -InitialPath $Path -AllowFolderDialog ([bool]$UseFolderDialog)
 
-    Write-Title "Scan startet"
-    Write-Host "Ordner: $rootPath"
+    Write-Host ""
+    Write-Host ("Scanning directory: {0}" -f $rootPath) -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "Pass 1 - Collecting all profile files..." -ForegroundColor Cyan
 
     $scan = Get-FilesDeep -RootPath $rootPath
     $allFiles = @($scan.Files)
@@ -553,15 +829,19 @@ try {
     $watchedFiles = @($allFiles | Where-Object { $WatchedExtensions -contains $_.Extension.ToLowerInvariant() })
     $findings = New-Object System.Collections.ArrayList
 
+    Write-Host ("Pass 2 - Checking {0} watched files..." -f $watchedFiles.Count) -ForegroundColor Cyan
     $current = 0
     foreach ($file in $watchedFiles) {
         $current++
+        Write-SpinnerStatus -Activity "File scan" -Index $current -Total $watchedFiles.Count -Name $file.Name
         $percent = if ($watchedFiles.Count -gt 0) { [int](($current / $watchedFiles.Count) * 100) } else { 100 }
         Write-Progress -Activity "Dateien bewerten" -Status $file.FullName -PercentComplete $percent
         [void]$findings.Add((New-ScanFinding -File $file -RootPath $rootPath))
     }
+    Clear-SpinnerStatus
     Write-Progress -Activity "Dateien bewerten" -Completed
 
+    Write-Host "Pass 3 - Reading logs and latest.log..." -ForegroundColor Cyan
     $logFindings = Get-LogFindings -AllFiles $allFiles -RootPath $rootPath -ScanGzLogs ([bool]$IncludeGzLogs)
 
     $finishedAt = Get-Date
@@ -571,14 +851,7 @@ try {
     $reportPath = Join-Path -Path $PSScriptRoot -ChildPath $reportName
     $reportLines | Set-Content -LiteralPath $reportPath -Encoding UTF8
 
-    Write-Title "Report"
-    $reportLines | ForEach-Object { Write-Host $_ }
-
-    Write-Title "Fertig"
-    Write-Host "Report gespeichert:" -ForegroundColor Green
-    Write-Host $reportPath -ForegroundColor Cyan
-    Write-Host ""
-    Write-Host "Hinweis: Treffer sind nur Hinweise. Ein Fund beweist nicht automatisch Cheating auf diesem Server." -ForegroundColor Yellow
+    Show-ConsoleReport -RootPath $rootPath -Findings @($findings) -LogFindings $logFindings -ScanErrors $scanErrors -TotalFiles $allFiles.Count -ReportPath $reportPath -StartedAt $startedAt -FinishedAt $finishedAt
 }
 catch {
     Write-Host ""

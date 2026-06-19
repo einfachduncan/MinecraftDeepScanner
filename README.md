@@ -99,9 +99,12 @@ Der Report ist uebersichtlich gruppiert:
 - `LATEST.LOG - VERDAECHTIGE TREFFER`
 - `LATEST.LOG - FEHLER / CRASH-HINWEISE`
 - Datei-Kategorien `HIGH`, `MEDIUM`, `LOW`, `INFO`
+- Extra-Bereiche fuer `CONFIG`, `LOG-DATEIEN`, `EXECUTABLES`, `ARCHIVE` und `UNBEKANNTE ORDNER`
 - weitere Log-Treffer
 
 Wenn in `logs/latest.log` verdachtige Begriffe gefunden werden, stehen sie extra weit oben im Report.
+
+In der PowerShell-Konsole nutzt der Scanner den ModAnalyzer-Stil mit Startlogo, Scan-Passes, farbigen Sektionen, `None`-Zeilen und einer kurzen Zusammenfassung. Der TXT-Report enthaelt dieselben Informationen ausfuehrlicher.
 
 Komprimierte `.log.gz`-Dateien werden aus Sicherheits- und Performancegruenden nicht entpackt. Sie werden im Report nur als Dateiname aufgefuehrt.
 
