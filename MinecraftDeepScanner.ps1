@@ -209,6 +209,10 @@ function Get-LatestLogExportChoice {
     Write-Host "Default: N - nothing is uploaded or sent automatically" -ForegroundColor DarkGray
     $choice = Read-Host "EXPORT"
 
+    if ([string]::IsNullOrWhiteSpace($choice)) {
+        return $false
+    }
+
     return ($choice.Trim().ToLowerInvariant() -eq "y")
 }
 
@@ -705,11 +709,11 @@ function Show-ConsoleReport {
     $mediumFindings = @($Findings | Where-Object { $_.Category -eq "MEDIUM" } | Sort-Object RelativePath)
     $lowFindings = @($Findings | Where-Object { $_.Category -eq "LOW" } | Sort-Object RelativePath)
     $infoFindings = @($Findings | Where-Object { $_.Category -eq "INFO" } | Sort-Object RelativePath)
-    $configFindings = @($Findings | Where-Object { $_.Area -eq "CONFIG" } | Sort-Object RelativePath)
-    $logAreaFindings = @($Findings | Where-Object { $_.Area -eq "LOGS" } | Sort-Object RelativePath)
+    $configFindings = @($Findings | Where-Object { $_.Area -eq "CONFIG" -and $_.Category -eq "INFO" } | Sort-Object RelativePath)
+    $logAreaFindings = @($Findings | Where-Object { $_.Area -eq "LOGS" -and $_.Category -eq "INFO" } | Sort-Object RelativePath)
     $executableFindings = @($Findings | Where-Object { $ExecutableExtensions -contains $_.Extension.ToLowerInvariant() } | Sort-Object RelativePath)
     $archiveFindings = @($Findings | Where-Object { $ArchiveExtensions -contains $_.Extension.ToLowerInvariant() } | Sort-Object RelativePath)
-    $unknownAreaFindings = @($Findings | Where-Object { $_.Area -eq "UNKNOWN" } | Sort-Object RelativePath)
+    $unknownAreaFindings = @($Findings | Where-Object { $_.Area -eq "UNKNOWN" -and $_.Category -eq "INFO" } | Sort-Object RelativePath)
     $latestSuspiciousHits = @($LogFindings.PlainLogHits | Where-Object { $_.IsLatestLog -and $_.Kind -eq "SUSPICIOUS" })
     $latestErrorHits = @($LogFindings.PlainLogHits | Where-Object { $_.IsLatestLog -and $_.Kind -eq "ERROR" })
     $otherSuspiciousHits = @($LogFindings.PlainLogHits | Where-Object { -not $_.IsLatestLog -and $_.Kind -eq "SUSPICIOUS" })
@@ -730,11 +734,6 @@ function Show-ConsoleReport {
     Write-Line
 
     Write-Host ""
-    Write-Host ("  *  EXECUTABLES / DLL / SCRIPTS  ({0})" -f $executableFindings.Count) -ForegroundColor Yellow
-    Write-Line
-    Write-ConsoleFindingList -Items $executableFindings -Color Yellow
-
-    Write-Host ""
     Write-Host ("  *  CONFIG AREA  ({0})" -f $configFindings.Count) -ForegroundColor Cyan
     Write-Line
     Write-ConsoleFindingList -Items $configFindings -Color White
@@ -743,11 +742,6 @@ function Show-ConsoleReport {
     Write-Host ("  *  LOG FILE AREA  ({0})" -f $logAreaFindings.Count) -ForegroundColor Cyan
     Write-Line
     Write-ConsoleFindingList -Items $logAreaFindings -Color White
-
-    Write-Host ""
-    Write-Host ("  *  ARCHIVES  ({0})" -f $archiveFindings.Count) -ForegroundColor White
-    Write-Line
-    Write-ConsoleFindingList -Items $archiveFindings -Color White
 
     Write-Host ""
     Write-Host ("  *  UNKNOWN FOLDERS  ({0})" -f $unknownAreaFindings.Count) -ForegroundColor Magenta
@@ -768,6 +762,16 @@ function Show-ConsoleReport {
     Write-Host ("  *  LOADED MODS IN LOGS  ({0})" -f $infoLogHits.Count) -ForegroundColor Cyan
     Write-Line
     Write-ConsoleLogList -Hits $infoLogHits -Color Cyan
+
+    Write-Host ""
+    Write-Host ("  *  ARCHIVES / LOW REVIEW  ({0})" -f $archiveFindings.Count) -ForegroundColor Yellow
+    Write-Line
+    Write-ConsoleFindingList -Items $archiveFindings -Color Yellow
+
+    Write-Host ""
+    Write-Host ("  *  EXECUTABLES / DLL / SCRIPTS  ({0})" -f $executableFindings.Count) -ForegroundColor Yellow
+    Write-Line
+    Write-ConsoleFindingList -Items $executableFindings -Color Yellow
 
     Write-Host ""
     Write-Host ("  *  LATEST.LOG ERRORS  ({0})" -f $latestErrorHits.Count) -ForegroundColor Yellow
@@ -841,11 +845,11 @@ function New-Report {
     $latestErrorHits = @($LogFindings.PlainLogHits | Where-Object { $_.IsLatestLog -and $_.Kind -eq "ERROR" })
     $otherSuspiciousHits = @($LogFindings.PlainLogHits | Where-Object { -not $_.IsLatestLog -and $_.Kind -eq "SUSPICIOUS" })
     $infoLogHits = @($LogFindings.PlainLogHits | Where-Object { $_.Kind -eq "INFO" })
-    $configFindings = @($Findings | Where-Object { $_.Area -eq "CONFIG" } | Sort-Object RelativePath)
-    $logAreaFindings = @($Findings | Where-Object { $_.Area -eq "LOGS" } | Sort-Object RelativePath)
+    $configFindings = @($Findings | Where-Object { $_.Area -eq "CONFIG" -and $_.Category -eq "INFO" } | Sort-Object RelativePath)
+    $logAreaFindings = @($Findings | Where-Object { $_.Area -eq "LOGS" -and $_.Category -eq "INFO" } | Sort-Object RelativePath)
     $executableFindings = @($Findings | Where-Object { $ExecutableExtensions -contains $_.Extension.ToLowerInvariant() } | Sort-Object RelativePath)
     $archiveFindings = @($Findings | Where-Object { $ArchiveExtensions -contains $_.Extension.ToLowerInvariant() } | Sort-Object RelativePath)
-    $unknownAreaFindings = @($Findings | Where-Object { $_.Area -eq "UNKNOWN" } | Sort-Object RelativePath)
+    $unknownAreaFindings = @($Findings | Where-Object { $_.Area -eq "UNKNOWN" -and $_.Category -eq "INFO" } | Sort-Object RelativePath)
 
     Add-Section -Lines $lines -Title "KURZFAZIT"
     [void]$lines.Add("HIGH Dateien:       $($highFindings.Count)")
@@ -868,12 +872,6 @@ function New-Report {
     Add-Section -Lines $lines -Title "LOG-DATEIEN - EXTRA"
     Add-FindingLines -Lines $lines -Findings $logAreaFindings
 
-    Add-Section -Lines $lines -Title "EXECUTABLES / DLL / SCRIPTS - EXTRA"
-    Add-FindingLines -Lines $lines -Findings $executableFindings
-
-    Add-Section -Lines $lines -Title "ARCHIVE - EXTRA"
-    Add-FindingLines -Lines $lines -Findings $archiveFindings
-
     Add-Section -Lines $lines -Title "UNBEKANNTE ORDNER - EXTRA"
     Add-FindingLines -Lines $lines -Findings $unknownAreaFindings
 
@@ -882,6 +880,12 @@ function New-Report {
 
     Add-Section -Lines $lines -Title "LOG-INFO - GELADENE MODS"
     Add-LogHitLines -Lines $lines -Hits $infoLogHits
+
+    Add-Section -Lines $lines -Title "ARCHIVE / LOW REVIEW"
+    Add-FindingLines -Lines $lines -Findings $archiveFindings
+
+    Add-Section -Lines $lines -Title "EXECUTABLES / DLL / SCRIPTS - EXTRA"
+    Add-FindingLines -Lines $lines -Findings $executableFindings
 
     Add-Section -Lines $lines -Title "LATEST.LOG - FEHLER / CRASH-HINWEISE"
     Add-LogHitLines -Lines $lines -Hits $latestErrorHits
