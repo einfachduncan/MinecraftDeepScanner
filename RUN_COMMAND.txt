@@ -14,4 +14,8 @@ GitHub-Start wie beim ModAnalyzer:
 
 Invoke-RestMethod "https://raw.githubusercontent.com/einfachduncan/MinecraftDeepScanner/main/MinecraftDeepScanner.ps1" -OutFile ".\MinecraftDeepScanner.ps1"; powershell -ExecutionPolicy Bypass -File ".\MinecraftDeepScanner.ps1"
 
+GitHub-Start mit lokalem latest.log Export:
+
+Invoke-RestMethod "https://raw.githubusercontent.com/einfachduncan/MinecraftDeepScanner/main/MinecraftDeepScanner.ps1" -OutFile ".\MinecraftDeepScanner.ps1"; powershell -ExecutionPolicy Bypass -File ".\MinecraftDeepScanner.ps1" -ExportLatestLog
+
 Hinweis: Der Bypass gilt nur fuer diesen lokalen Startbefehl. Das Skript laedt nichts aus dem Internet und fuehrt keinen Remote-Code aus.

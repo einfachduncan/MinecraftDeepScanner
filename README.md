@@ -106,6 +106,12 @@ Wenn in `logs/latest.log` verdachtige Begriffe gefunden werden, stehen sie extra
 
 In der PowerShell-Konsole nutzt der Scanner den ModAnalyzer-Stil mit Startlogo, Scan-Passes, farbigen Sektionen, `None`-Zeilen und einer kurzen Zusammenfassung. Der TXT-Report enthaelt dieselben Informationen ausfuehrlicher.
 
+Optional kann `logs/latest.log` lokal neben den Report exportiert werden. Das ist bewusst kein automatischer Upload und keine automatische E-Mail, damit private Log-Inhalte nicht unbemerkt verschickt werden.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\MinecraftDeepScanner.ps1 -ExportLatestLog
+```
+
 Komprimierte `.log.gz`-Dateien werden aus Sicherheits- und Performancegruenden nicht entpackt. Sie werden im Report nur als Dateiname aufgefuehrt.
 
 ## Report

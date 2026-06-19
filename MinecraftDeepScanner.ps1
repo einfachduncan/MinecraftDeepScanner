@@ -20,6 +20,9 @@ param(
     [switch]$UseFolderDialog,
 
     [Parameter(Mandatory = $false)]
+    [switch]$ExportLatestLog,
+
+    [Parameter(Mandatory = $false)]
     [switch]$IncludeGzLogs
 )
 
@@ -192,6 +195,21 @@ function Select-MinecraftFolder {
         throw "Der angegebene Pfad ist kein Ordner: $manualPath"
     }
     return $resolvedManual.Path
+}
+
+function Get-LatestLogExportChoice {
+    param([bool]$AlreadyRequested)
+
+    if ($AlreadyRequested) {
+        return $true
+    }
+
+    Write-Host ""
+    Write-Host "Export latest.log next to the report for manual review/email? [y/N]" -ForegroundColor White
+    Write-Host "Default: N - nothing is uploaded or sent automatically" -ForegroundColor DarkGray
+    $choice = Read-Host "EXPORT"
+
+    return ($choice.Trim().ToLowerInvariant() -eq "y")
 }
 
 function Format-FileSize {
@@ -542,6 +560,30 @@ function Add-FindingLines {
     }
 }
 
+function Export-LatestLogLocal {
+    param(
+        [System.IO.FileInfo[]]$AllFiles,
+        [string]$RootPath,
+        [string]$DestinationDirectory,
+        [datetime]$Timestamp
+    )
+
+    $latestLog = @($AllFiles | Where-Object {
+        $relative = Get-RelativePathSafe -BasePath $RootPath -FullPath $_.FullName
+        $relative.ToLowerInvariant() -eq "logs\latest.log"
+    } | Sort-Object FullName | Select-Object -First 1)
+
+    if ($latestLog.Count -eq 0) {
+        return $null
+    }
+
+    $exportName = "MinecraftDeepScan_latest-log_{0}.log" -f $Timestamp.ToString("yyyy-MM-dd_HH-mm-ss")
+    $exportPath = Join-Path -Path $DestinationDirectory -ChildPath $exportName
+    Copy-Item -LiteralPath $latestLog[0].FullName -Destination $exportPath -Force
+
+    return $exportPath
+}
+
 function Add-LogHitLines {
     param(
         [System.Collections.ArrayList]$Lines,
@@ -608,6 +650,8 @@ function Show-ConsoleReport {
         [object[]]$ScanErrors,
         [int]$TotalFiles,
         [string]$ReportPath,
+        [AllowNull()]
+        [string]$LatestLogExportPath,
         [datetime]$StartedAt,
         [datetime]$FinishedAt
     )
@@ -699,6 +743,12 @@ function Show-ConsoleReport {
     Write-Host "SUMMARY" -ForegroundColor Cyan
     Write-Line
     Write-Host ("  Report saved:       {0}" -f $ReportPath) -ForegroundColor White
+    if (-not [string]::IsNullOrWhiteSpace($LatestLogExportPath)) {
+        Write-Host ("  latest.log export:  {0}" -f $LatestLogExportPath) -ForegroundColor White
+    }
+    else {
+        Write-Host "  latest.log export:  not exported" -ForegroundColor DarkGray
+    }
     Write-Host "  Treffer sind nur Hinweise. Ein Fund beweist nicht automatisch Cheating auf diesem Server." -ForegroundColor Yellow
 
     $sparkles = [char]::ConvertFromUtf32(0x2728)
@@ -714,6 +764,8 @@ function New-Report {
         [object]$LogFindings,
         [object[]]$ScanErrors,
         [int]$TotalFiles,
+        [AllowNull()]
+        [string]$LatestLogExportPath,
         [datetime]$StartedAt,
         [datetime]$FinishedAt
     )
@@ -726,6 +778,12 @@ function New-Report {
     [void]$lines.Add("Dauer: $([math]::Round(($FinishedAt - $StartedAt).TotalSeconds, 2)) Sekunden")
     [void]$lines.Add("Gescannte Dateien gesamt: $TotalFiles")
     [void]$lines.Add("Markierte Dateien: $($Findings.Count)")
+    if (-not [string]::IsNullOrWhiteSpace($LatestLogExportPath)) {
+        [void]$lines.Add("Exportierte latest.log: $LatestLogExportPath")
+    }
+    else {
+        [void]$lines.Add("Exportierte latest.log: nein")
+    }
     [void]$lines.Add("")
     [void]$lines.Add("WICHTIG: Treffer sind nur Hinweise. Ein Fund beweist nicht automatisch Cheating auf diesem Server.")
     [void]$lines.Add("Das Skript arbeitet read-only, sendet nichts ins Internet und erzwingt keine Admin-Rechte.")
@@ -820,7 +878,7 @@ try {
     Write-Host ""
     Write-Host ("Scanning directory: {0}" -f $rootPath) -ForegroundColor Cyan
     Write-Host ""
-    Write-Host "Pass 1 - Collecting all profile files..." -ForegroundColor Cyan
+    Write-Host "Pass 1 - DeepScanner inventory (mods/config/logs/libraries/unknown folders)..." -ForegroundColor Cyan
 
     $scan = Get-FilesDeep -RootPath $rootPath
     $allFiles = @($scan.Files)
@@ -829,7 +887,7 @@ try {
     $watchedFiles = @($allFiles | Where-Object { $WatchedExtensions -contains $_.Extension.ToLowerInvariant() })
     $findings = New-Object System.Collections.ArrayList
 
-    Write-Host ("Pass 2 - Checking {0} watched files..." -f $watchedFiles.Count) -ForegroundColor Cyan
+    Write-Host ("Pass 2 - File signals scan ({0} watched files)..." -f $watchedFiles.Count) -ForegroundColor Cyan
     $current = 0
     foreach ($file in $watchedFiles) {
         $current++
@@ -841,17 +899,33 @@ try {
     Clear-SpinnerStatus
     Write-Progress -Activity "Dateien bewerten" -Completed
 
-    Write-Host "Pass 3 - Reading logs and latest.log..." -ForegroundColor Cyan
+    Write-Host "Pass 3 - LatestLog and profile log scan..." -ForegroundColor Cyan
     $logFindings = Get-LogFindings -AllFiles $allFiles -RootPath $rootPath -ScanGzLogs ([bool]$IncludeGzLogs)
 
     $finishedAt = Get-Date
-    $reportLines = New-Report -RootPath $rootPath -Findings @($findings) -LogFindings $logFindings -ScanErrors $scanErrors -TotalFiles $allFiles.Count -StartedAt $startedAt -FinishedAt $finishedAt
 
     $reportName = "MinecraftDeepScan_Report_{0}.txt" -f $finishedAt.ToString("yyyy-MM-dd_HH-mm-ss")
     $reportPath = Join-Path -Path $PSScriptRoot -ChildPath $reportName
+
+    Write-Host "Pass 4 - Local latest.log export option..." -ForegroundColor Cyan
+    $latestLogExportPath = $null
+    if (Get-LatestLogExportChoice -AlreadyRequested ([bool]$ExportLatestLog)) {
+        $latestLogExportPath = Export-LatestLogLocal -AllFiles $allFiles -RootPath $rootPath -DestinationDirectory $PSScriptRoot -Timestamp $finishedAt
+        if ([string]::IsNullOrWhiteSpace($latestLogExportPath)) {
+            Write-Host "   No logs\\latest.log found to export." -ForegroundColor DarkGray
+        }
+        else {
+            Write-Host ("   Exported latest.log locally: {0}" -f $latestLogExportPath) -ForegroundColor Green
+        }
+    }
+    else {
+        Write-Host "   latest.log export skipped." -ForegroundColor DarkGray
+    }
+
+    $reportLines = New-Report -RootPath $rootPath -Findings @($findings) -LogFindings $logFindings -ScanErrors $scanErrors -TotalFiles $allFiles.Count -LatestLogExportPath $latestLogExportPath -StartedAt $startedAt -FinishedAt $finishedAt
     $reportLines | Set-Content -LiteralPath $reportPath -Encoding UTF8
 
-    Show-ConsoleReport -RootPath $rootPath -Findings @($findings) -LogFindings $logFindings -ScanErrors $scanErrors -TotalFiles $allFiles.Count -ReportPath $reportPath -StartedAt $startedAt -FinishedAt $finishedAt
+    Show-ConsoleReport -RootPath $rootPath -Findings @($findings) -LogFindings $logFindings -ScanErrors $scanErrors -TotalFiles $allFiles.Count -ReportPath $reportPath -LatestLogExportPath $latestLogExportPath -StartedAt $startedAt -FinishedAt $finishedAt
 }
 catch {
     Write-Host ""

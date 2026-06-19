@@ -1,3 +1,4 @@
 MinecraftDeepScan_Report_*.txt
+MinecraftDeepScan_latest-log_*.log
 *.tmp
 *.log
