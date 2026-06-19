@@ -8,7 +8,8 @@
 - loescht nichts
 - verschiebt nichts
 - veraendert nichts
-- sendet keine Dateien, Pfade oder Hashes ins Internet
+- sendet keine Dateien ins Internet
+- bei aktivierter Modrinth/Megabase-Verifikation werden nur lokale SHA1-Hashes von Mods abgefragt
 - erzwingt keine Administratorrechte
 - scannt trotz Zugriffsfehlern weiter
 - schreibt am Ende nur eine lokale TXT-Reportdatei
@@ -120,6 +121,14 @@ Optional kann zusaetzlich eine lokale E-Mail-Draft-Datei fuer `waxedlogs@gmail.c
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\MinecraftDeepScanner.ps1 -ExportLatestLog -PrepareEmailDraft
+```
+
+Wie beim ModAnalyzer kann der Scanner Mods aus dem `mods`-Ordner online verifizieren. Dabei wird nur der lokale SHA1-Hash gegen Modrinth und Megabase abgefragt; die Mod-Datei selbst wird nicht hochgeladen.
+
+Standard ist `Y`, du kannst beim Prompt `n` eingeben oder direkt offline starten:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\MinecraftDeepScanner.ps1 -NoOnlineVerification
 ```
 
 Komprimierte `.log.gz`-Dateien werden aus Sicherheits- und Performancegruenden nicht entpackt. Sie werden im Report nur als Dateiname aufgefuehrt.
