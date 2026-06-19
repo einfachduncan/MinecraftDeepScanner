@@ -270,6 +270,48 @@ function Get-ProfileArea {
     }
 }
 
+function Test-IsFabricLibraryFile {
+    param(
+        [System.IO.FileInfo]$File,
+        [string]$RootPath
+    )
+
+    $relativePath = (Get-RelativePathSafe -BasePath $RootPath -FullPath $File.FullName).ToLowerInvariant().Replace("/", "\")
+    $fileName = $File.Name.ToLowerInvariant()
+
+    if ((Get-ProfileArea -RelativePath $relativePath) -ne "LIBRARIES") {
+        return $false
+    }
+
+    return (
+        $relativePath.Contains("\net\fabricmc\") -or
+        $relativePath.Contains("\fabricmc\") -or
+        $fileName.StartsWith("fabric-") -or
+        $fileName.Contains("fabric-loader") -or
+        $fileName.Contains("fabric-api") -or
+        $fileName.Contains("fabric-language") -or
+        $fileName.Contains("intermediary")
+    )
+}
+
+function Test-IsBenignFabricLogLine {
+    param(
+        [string]$LowerLine,
+        [string]$MatchedWord
+    )
+
+    if ($MatchedWord -ne "loader" -and $MatchedWord -ne "client") {
+        return $false
+    }
+
+    return (
+        $LowerLine.Contains("fabric loader") -or
+        $LowerLine.Contains("fabric-loader") -or
+        $LowerLine.Contains("net.fabricmc") -or
+        $LowerLine.Contains("fabricmc")
+    )
+}
+
 function Get-CategoryAndReason {
     param(
         [System.IO.FileInfo]$File,
@@ -423,6 +465,9 @@ function Read-LogFileSafe {
 
             foreach ($word in $LogSuspiciousWords) {
                 if ($lowerLine.Contains($word)) {
+                    if (Test-IsBenignFabricLogLine -LowerLine $lowerLine -MatchedWord $word) {
+                        continue
+                    }
                     [void]$hits.Add((New-LogHit -LogFile $LogFile -RootPath $RootPath -LineNumber $lineNumber -Match $word -Kind "SUSPICIOUS" -Text $line))
                     $matched = $true
                     break
@@ -685,21 +730,6 @@ function Show-ConsoleReport {
     Write-Line
 
     Write-Host ""
-    Write-Host ("  *  LATEST.LOG FLAGS  ({0})" -f $latestSuspiciousHits.Count) -ForegroundColor Red
-    Write-Line
-    Write-ConsoleLogList -Hits $latestSuspiciousHits -Color Red
-
-    Write-Host ""
-    Write-Host ("  *  LATEST.LOG ERRORS  ({0})" -f $latestErrorHits.Count) -ForegroundColor Yellow
-    Write-Line
-    Write-ConsoleLogList -Hits $latestErrorHits -Color Yellow
-
-    Write-Host ""
-    Write-Host ("  *  FLAGGED FILES  ({0})" -f $highFindings.Count) -ForegroundColor Red
-    Write-Line
-    Write-ConsoleFindingList -Items $highFindings -Color Red
-
-    Write-Host ""
     Write-Host ("  *  EXECUTABLES / DLL / SCRIPTS  ({0})" -f $executableFindings.Count) -ForegroundColor Yellow
     Write-Line
     Write-ConsoleFindingList -Items $executableFindings -Color Yellow
@@ -738,6 +768,21 @@ function Show-ConsoleReport {
     Write-Host ("  *  LOADED MODS IN LOGS  ({0})" -f $infoLogHits.Count) -ForegroundColor Cyan
     Write-Line
     Write-ConsoleLogList -Hits $infoLogHits -Color Cyan
+
+    Write-Host ""
+    Write-Host ("  *  LATEST.LOG ERRORS  ({0})" -f $latestErrorHits.Count) -ForegroundColor Yellow
+    Write-Line
+    Write-ConsoleLogList -Hits $latestErrorHits -Color Yellow
+
+    Write-Host ""
+    Write-Host ("  *  LATEST.LOG FLAGS  ({0})" -f $latestSuspiciousHits.Count) -ForegroundColor Red
+    Write-Line
+    Write-ConsoleLogList -Hits $latestSuspiciousHits -Color Red
+
+    Write-Host ""
+    Write-Host ("  *  FLAGGED FILES  ({0})" -f $highFindings.Count) -ForegroundColor Red
+    Write-Line
+    Write-ConsoleFindingList -Items $highFindings -Color Red
 
     Write-Host ""
     Write-Host "SUMMARY" -ForegroundColor Cyan
@@ -811,13 +856,7 @@ function New-Report {
     [void]$lines.Add("latest.log Fehler:     $($latestErrorHits.Count)")
     [void]$lines.Add("Zugriffsfehler:     $($ScanErrors.Count)")
 
-    Add-Section -Lines $lines -Title "LATEST.LOG - VERDAECHTIGE TREFFER"
-    Add-LogHitLines -Lines $lines -Hits $latestSuspiciousHits
-
-    Add-Section -Lines $lines -Title "LATEST.LOG - FEHLER / CRASH-HINWEISE"
-    Add-LogHitLines -Lines $lines -Hits $latestErrorHits
-
-    foreach ($category in @("HIGH", "MEDIUM", "LOW", "INFO")) {
+    foreach ($category in @("INFO", "LOW", "MEDIUM")) {
         $categoryFindings = @($Findings | Where-Object { $_.Category -eq $category } | Sort-Object FullPath)
         Add-Section -Lines $lines -Title "$category - Dateien"
         Add-FindingLines -Lines $lines -Findings $categoryFindings
@@ -843,6 +882,16 @@ function New-Report {
 
     Add-Section -Lines $lines -Title "LOG-INFO - GELADENE MODS"
     Add-LogHitLines -Lines $lines -Hits $infoLogHits
+
+    Add-Section -Lines $lines -Title "LATEST.LOG - FEHLER / CRASH-HINWEISE"
+    Add-LogHitLines -Lines $lines -Hits $latestErrorHits
+
+    Add-Section -Lines $lines -Title "LATEST.LOG - VERDAECHTIGE TREFFER"
+    Add-LogHitLines -Lines $lines -Hits $latestSuspiciousHits
+
+    $highCategoryFindings = @($Findings | Where-Object { $_.Category -eq "HIGH" } | Sort-Object FullPath)
+    Add-Section -Lines $lines -Title "HIGH - Dateien"
+    Add-FindingLines -Lines $lines -Findings $highCategoryFindings
 
     Add-Section -Lines $lines -Title "KOMPRIMIERTE LOGS (.log.gz)"
     if ($LogFindings.GzLogs.Count -eq 0) {
@@ -884,7 +933,10 @@ try {
     $allFiles = @($scan.Files)
     $scanErrors = @($scan.Errors)
 
-    $watchedFiles = @($allFiles | Where-Object { $WatchedExtensions -contains $_.Extension.ToLowerInvariant() })
+    $watchedFiles = @($allFiles | Where-Object {
+        ($WatchedExtensions -contains $_.Extension.ToLowerInvariant()) -and
+        -not (Test-IsFabricLibraryFile -File $_ -RootPath $rootPath)
+    })
     $findings = New-Object System.Collections.ArrayList
 
     Write-Host ("Pass 2 - File signals scan ({0} watched files)..." -f $watchedFiles.Count) -ForegroundColor Cyan

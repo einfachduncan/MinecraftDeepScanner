@@ -106,6 +106,10 @@ Wenn in `logs/latest.log` verdachtige Begriffe gefunden werden, stehen sie extra
 
 In der PowerShell-Konsole nutzt der Scanner den ModAnalyzer-Stil mit Startlogo, Scan-Passes, farbigen Sektionen, `None`-Zeilen und einer kurzen Zusammenfassung. Der TXT-Report enthaelt dieselben Informationen ausfuehrlicher.
 
+Fabric-Bibliotheken aus `libraries\net\fabricmc` werden nicht als verdachtig gelistet, weil sie normale Loader-/Minecraft-Abhaengigkeiten sind. Auch harmlose `Fabric Loader`-Zeilen in `latest.log` werden nicht als `loader`-Treffer gewertet.
+
+Flag-Bereiche stehen bewusst weiter unten, damit zuerst normale Bereiche wie Config, Archive, unbekannte Ordner und geladene Mods sichtbar sind.
+
 Optional kann `logs/latest.log` lokal neben den Report exportiert werden. Das ist bewusst kein automatischer Upload und keine automatische E-Mail, damit private Log-Inhalte nicht unbemerkt verschickt werden.
 
 ```powershell
