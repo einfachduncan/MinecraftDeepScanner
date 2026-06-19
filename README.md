@@ -93,6 +93,16 @@ Namens-Treffer:
 
 Das Skript liest normale `.log`-Dateien, darunter `logs/latest.log`, sofern vorhanden. Es sucht nach geladenen Mods, Fehlern und verdachtigen Begriffen.
 
+Der Report ist uebersichtlich gruppiert:
+
+- `KURZFAZIT`
+- `LATEST.LOG - VERDAECHTIGE TREFFER`
+- `LATEST.LOG - FEHLER / CRASH-HINWEISE`
+- Datei-Kategorien `HIGH`, `MEDIUM`, `LOW`, `INFO`
+- weitere Log-Treffer
+
+Wenn in `logs/latest.log` verdachtige Begriffe gefunden werden, stehen sie extra weit oben im Report.
+
 Komprimierte `.log.gz`-Dateien werden aus Sicherheits- und Performancegruenden nicht entpackt. Sie werden im Report nur als Dateiname aufgefuehrt.
 
 ## Report

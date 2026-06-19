@@ -40,9 +40,14 @@ $WatchedExtensions = @(
 
 $ExecutableExtensions = @(".exe", ".dll", ".bat", ".cmd", ".ps1", ".vbs")
 $ArchiveExtensions = @(".zip", ".rar", ".7z")
-$LogWarningWords = @(
+$LogInfoWords = @(
     "loading mod", "loaded mod", "loading mods", "loaded mods", "mod list",
-    "error", "exception", "failed", "crash", "mixin apply failed", "unable to load",
+    "loading plugin", "loaded plugin"
+)
+$LogErrorWords = @(
+    "error", "exception", "failed", "crash", "mixin apply failed", "unable to load"
+)
+$LogSuspiciousWords = @(
     "vape", "meteor", "wurst", "raven", "sigma", "aristois", "future", "impact",
     "liquidbounce", "bleachhack", "inertia", "cheat", "ghost", "autoclicker",
     "clicker", "reach", "velocity", "killaura", "aimassist", "triggerbot",
@@ -287,17 +292,32 @@ function Read-LogFileSafe {
             $lineNumber++
             $line = [string]$_
             $lowerLine = $line.ToLowerInvariant()
+            $matched = $false
 
-            foreach ($word in $LogWarningWords) {
+            foreach ($word in $LogSuspiciousWords) {
                 if ($lowerLine.Contains($word)) {
-                    [void]$hits.Add([pscustomobject]@{
-                        LogFile = $LogFile.FullName
-                        RelativePath = Get-RelativePathSafe -BasePath $RootPath -FullPath $LogFile.FullName
-                        Line = $lineNumber
-                        Match = $word
-                        Text = if ($line.Length -gt 240) { $line.Substring(0, 240) + "..." } else { $line }
-                    })
+                    [void]$hits.Add((New-LogHit -LogFile $LogFile -RootPath $RootPath -LineNumber $lineNumber -Match $word -Kind "SUSPICIOUS" -Text $line))
+                    $matched = $true
                     break
+                }
+            }
+
+            if (-not $matched) {
+                foreach ($word in $LogErrorWords) {
+                    if ($lowerLine.Contains($word)) {
+                        [void]$hits.Add((New-LogHit -LogFile $LogFile -RootPath $RootPath -LineNumber $lineNumber -Match $word -Kind "ERROR" -Text $line))
+                        $matched = $true
+                        break
+                    }
+                }
+            }
+
+            if (-not $matched) {
+                foreach ($word in $LogInfoWords) {
+                    if ($lowerLine.Contains($word)) {
+                        [void]$hits.Add((New-LogHit -LogFile $LogFile -RootPath $RootPath -LineNumber $lineNumber -Match $word -Kind "INFO" -Text $line))
+                        break
+                    }
                 }
             }
         }
@@ -306,13 +326,37 @@ function Read-LogFileSafe {
         [void]$hits.Add([pscustomobject]@{
             LogFile = $LogFile.FullName
             RelativePath = Get-RelativePathSafe -BasePath $RootPath -FullPath $LogFile.FullName
+            IsLatestLog = ($LogFile.Name.ToLowerInvariant() -eq "latest.log")
             Line = 0
             Match = "LOG_LESEN_FEHLER"
+            Kind = "ERROR"
             Text = $_.Exception.Message
         })
     }
 
     return $hits.ToArray()
+}
+
+function New-LogHit {
+    param(
+        [System.IO.FileInfo]$LogFile,
+        [string]$RootPath,
+        [int]$LineNumber,
+        [string]$Match,
+        [string]$Kind,
+        [string]$Text
+    )
+
+    $relativePath = Get-RelativePathSafe -BasePath $RootPath -FullPath $LogFile.FullName
+    return [pscustomobject]@{
+        LogFile = $LogFile.FullName
+        RelativePath = $relativePath
+        IsLatestLog = ($relativePath.ToLowerInvariant() -eq "logs\latest.log" -or $LogFile.Name.ToLowerInvariant() -eq "latest.log")
+        Line = $LineNumber
+        Match = $Match
+        Kind = $Kind
+        Text = if ($Text.Length -gt 180) { $Text.Substring(0, 180) + "..." } else { $Text }
+    }
 }
 
 function Get-LogFindings {
@@ -378,16 +422,33 @@ function Add-FindingLines {
     $index = 1
     foreach ($finding in $Findings) {
         [void]$Lines.Add("")
-        [void]$Lines.Add("[$index] $($finding.FileName)")
-        [void]$Lines.Add("Kategorie:      $($finding.Category)")
-        [void]$Lines.Add("Pfad:           $($finding.FullPath)")
-        [void]$Lines.Add("Relativ:        $($finding.RelativePath)")
-        [void]$Lines.Add("Dateiendung:    $($finding.Extension)")
-        [void]$Lines.Add("Groesse:        $($finding.SizeText) ($($finding.SizeBytes) Bytes)")
-        [void]$Lines.Add("Erstellt:       $($finding.Created)")
-        [void]$Lines.Add("Geaendert:      $($finding.Modified)")
-        [void]$Lines.Add("SHA256:         $($finding.SHA256)")
-        [void]$Lines.Add("Warum markiert: $($finding.Reason)")
+        [void]$Lines.Add("[$index] [$($finding.Category)] $($finding.RelativePath)")
+        [void]$Lines.Add("    Grund:   $($finding.Reason)")
+        [void]$Lines.Add("    Datei:   $($finding.FileName) | $($finding.Extension) | $($finding.SizeText)")
+        [void]$Lines.Add("    Zeit:    Erstellt $($finding.Created) | Geaendert $($finding.Modified)")
+        [void]$Lines.Add("    SHA256:  $($finding.SHA256)")
+        [void]$Lines.Add("    Pfad:    $($finding.FullPath)")
+        $index++
+    }
+}
+
+function Add-LogHitLines {
+    param(
+        [System.Collections.ArrayList]$Lines,
+        [object[]]$Hits
+    )
+
+    if ($Hits.Count -eq 0) {
+        [void]$Lines.Add("Keine Treffer.")
+        return
+    }
+
+    $index = 1
+    foreach ($hit in $Hits) {
+        [void]$Lines.Add("")
+        [void]$Lines.Add("[$index] [$($hit.Kind)] $($hit.RelativePath):$($hit.Line)")
+        [void]$Lines.Add("    Treffer: $($hit.Match)")
+        [void]$Lines.Add("    Zeile:   $($hit.Text)")
         $index++
     }
 }
@@ -415,26 +476,41 @@ function New-Report {
     [void]$lines.Add("WICHTIG: Treffer sind nur Hinweise. Ein Fund beweist nicht automatisch Cheating auf diesem Server.")
     [void]$lines.Add("Das Skript arbeitet read-only, sendet nichts ins Internet und erzwingt keine Admin-Rechte.")
 
+    $highFindings = @($Findings | Where-Object { $_.Category -eq "HIGH" })
+    $mediumFindings = @($Findings | Where-Object { $_.Category -eq "MEDIUM" })
+    $lowFindings = @($Findings | Where-Object { $_.Category -eq "LOW" })
+    $infoFindings = @($Findings | Where-Object { $_.Category -eq "INFO" })
+    $latestSuspiciousHits = @($LogFindings.PlainLogHits | Where-Object { $_.IsLatestLog -and $_.Kind -eq "SUSPICIOUS" })
+    $latestErrorHits = @($LogFindings.PlainLogHits | Where-Object { $_.IsLatestLog -and $_.Kind -eq "ERROR" })
+    $otherSuspiciousHits = @($LogFindings.PlainLogHits | Where-Object { -not $_.IsLatestLog -and $_.Kind -eq "SUSPICIOUS" })
+    $infoLogHits = @($LogFindings.PlainLogHits | Where-Object { $_.Kind -eq "INFO" })
+
+    Add-Section -Lines $lines -Title "KURZFAZIT"
+    [void]$lines.Add("HIGH Dateien:       $($highFindings.Count)")
+    [void]$lines.Add("MEDIUM Dateien:     $($mediumFindings.Count)")
+    [void]$lines.Add("LOW Dateien:        $($lowFindings.Count)")
+    [void]$lines.Add("INFO JARs/Mods:     $($infoFindings.Count)")
+    [void]$lines.Add("latest.log auffaellig: $($latestSuspiciousHits.Count)")
+    [void]$lines.Add("latest.log Fehler:     $($latestErrorHits.Count)")
+    [void]$lines.Add("Zugriffsfehler:     $($ScanErrors.Count)")
+
+    Add-Section -Lines $lines -Title "LATEST.LOG - VERDAECHTIGE TREFFER"
+    Add-LogHitLines -Lines $lines -Hits $latestSuspiciousHits
+
+    Add-Section -Lines $lines -Title "LATEST.LOG - FEHLER / CRASH-HINWEISE"
+    Add-LogHitLines -Lines $lines -Hits $latestErrorHits
+
     foreach ($category in @("HIGH", "MEDIUM", "LOW", "INFO")) {
         $categoryFindings = @($Findings | Where-Object { $_.Category -eq $category } | Sort-Object FullPath)
         Add-Section -Lines $lines -Title "$category - Dateien"
         Add-FindingLines -Lines $lines -Findings $categoryFindings
     }
 
-    Add-Section -Lines $lines -Title "LOG-TREFFER"
-    if ($LogFindings.PlainLogHits.Count -eq 0) {
-        [void]$lines.Add("Keine passenden Log-Zeilen gefunden.")
-    }
-    else {
-        $index = 1
-        foreach ($hit in $LogFindings.PlainLogHits) {
-            [void]$lines.Add("")
-            [void]$lines.Add("[$index] $($hit.RelativePath):$($hit.Line)")
-            [void]$lines.Add("Treffer: $($hit.Match)")
-            [void]$lines.Add("Zeile:   $($hit.Text)")
-            $index++
-        }
-    }
+    Add-Section -Lines $lines -Title "WEITERE LOGS - VERDAECHTIGE TREFFER"
+    Add-LogHitLines -Lines $lines -Hits $otherSuspiciousHits
+
+    Add-Section -Lines $lines -Title "LOG-INFO - GELADENE MODS"
+    Add-LogHitLines -Lines $lines -Hits $infoLogHits
 
     Add-Section -Lines $lines -Title "KOMPRIMIERTE LOGS (.log.gz)"
     if ($LogFindings.GzLogs.Count -eq 0) {
