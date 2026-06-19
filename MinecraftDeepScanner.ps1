@@ -17,6 +17,9 @@ param(
     [string]$Path,
 
     [Parameter(Mandatory = $false)]
+    [switch]$UseFolderDialog,
+
+    [Parameter(Mandatory = $false)]
     [switch]$IncludeGzLogs
 )
 
@@ -56,7 +59,10 @@ function Write-Title {
 }
 
 function Select-MinecraftFolder {
-    param([string]$InitialPath)
+    param(
+        [string]$InitialPath,
+        [bool]$AllowFolderDialog
+    )
 
     if (-not [string]::IsNullOrWhiteSpace($InitialPath)) {
         $resolved = Resolve-Path -LiteralPath $InitialPath -ErrorAction Stop
@@ -66,7 +72,7 @@ function Select-MinecraftFolder {
         return $resolved.Path
     }
 
-    if ($env:OS -eq "Windows_NT" -or $PSVersionTable.PSEdition -eq "Desktop") {
+    if ($AllowFolderDialog -and ($env:OS -eq "Windows_NT" -or $PSVersionTable.PSEdition -eq "Desktop")) {
         try {
             Add-Type -AssemblyName System.Windows.Forms
             $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
@@ -82,7 +88,15 @@ function Select-MinecraftFolder {
         }
     }
 
+    Write-Host ""
+    Write-Host "Bitte Minecraft-Hauptordner eingeben." -ForegroundColor Cyan
+    Write-Host "Beispiele:" -ForegroundColor DarkGray
+    Write-Host "  $env:APPDATA\.minecraft" -ForegroundColor DarkGray
+    Write-Host "  $env:APPDATA\ModrinthApp\profiles\mt 1.21.11" -ForegroundColor DarkGray
+    Write-Host "  $env:APPDATA\PrismLauncher\instances\DEINE_INSTANZ" -ForegroundColor DarkGray
+    Write-Host ""
     $manualPath = Read-Host "Pfad zum Minecraft-Hauptordner eingeben"
+    $manualPath = $manualPath.Trim().Trim('"')
     $resolvedManual = Resolve-Path -LiteralPath $manualPath -ErrorAction Stop
     if (-not (Test-Path -LiteralPath $resolvedManual.Path -PathType Container)) {
         throw "Der angegebene Pfad ist kein Ordner: $manualPath"
@@ -451,7 +465,7 @@ try {
     Write-Host "Read-only Scan: keine Loeschung, keine Veraenderung, kein Internet." -ForegroundColor Green
 
     $startedAt = Get-Date
-    $rootPath = Select-MinecraftFolder -InitialPath $Path
+    $rootPath = Select-MinecraftFolder -InitialPath $Path -AllowFolderDialog ([bool]$UseFolderDialog)
 
     Write-Title "Scan startet"
     Write-Host "Ordner: $rootPath"

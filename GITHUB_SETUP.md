@@ -30,6 +30,12 @@ Invoke-RestMethod "https://raw.githubusercontent.com/einfachduncan/MinecraftDeep
 powershell -ExecutionPolicy Bypass -File ".\MinecraftDeepScanner.ps1"
 ```
 
+Danach diesen Pfad eingeben, wenn du dein Modrinth-Profil scannen willst:
+
+```text
+C:\Users\dunca\AppData\Roaming\ModrinthApp\profiles\mt 1.21.11
+```
+
 Direkt mit Minecraft-Ordner:
 
 ```powershell

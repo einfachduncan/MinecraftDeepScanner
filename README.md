@@ -23,6 +23,12 @@ Im Ordner dieses Repos:
 powershell -ExecutionPolicy Bypass -File .\MinecraftDeepScanner.ps1
 ```
 
+Danach fragt das Skript nach dem Minecraft-Hauptordner. Dort kannst du zum Beispiel eingeben:
+
+```text
+C:\Users\dunca\AppData\Roaming\ModrinthApp\profiles\mt 1.21.11
+```
+
 Mit direktem Ordnerpfad:
 
 ```powershell
@@ -36,6 +42,12 @@ Nach dem Upload auf GitHub:
 ```powershell
 Invoke-RestMethod "https://raw.githubusercontent.com/einfachduncan/MinecraftDeepScanner/main/MinecraftDeepScanner.ps1" -OutFile ".\MinecraftDeepScanner.ps1"
 powershell -ExecutionPolicy Bypass -File ".\MinecraftDeepScanner.ps1"
+```
+
+Danach den Profilpfad eingeben, z. B.:
+
+```text
+C:\Users\dunca\AppData\Roaming\ModrinthApp\profiles\mt 1.21.11
 ```
 
 Beispiele fuer andere Launcher:
