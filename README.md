@@ -34,11 +34,9 @@ powershell -ExecutionPolicy Bypass -File .\MinecraftDeepScanner.ps1 -Path "$env:
 Nach dem Upload auf GitHub:
 
 ```powershell
-Invoke-RestMethod "https://raw.githubusercontent.com/DEINNAME/MinecraftDeepScanner/main/MinecraftDeepScanner.ps1" -OutFile ".\MinecraftDeepScanner.ps1"
+Invoke-RestMethod "https://raw.githubusercontent.com/einfachduncan/MinecraftDeepScanner/main/MinecraftDeepScanner.ps1" -OutFile ".\MinecraftDeepScanner.ps1"
 powershell -ExecutionPolicy Bypass -File ".\MinecraftDeepScanner.ps1"
 ```
-
-Ersetze `DEINNAME` durch deinen GitHub-Namen.
 
 Beispiele fuer andere Launcher:
 
